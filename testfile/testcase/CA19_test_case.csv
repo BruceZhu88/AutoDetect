@@ -1,0 +1,8 @@
+TC001,power on,power off,,,,,,,,
+TC002,power on,bt pairing,power off,,,,,,,
+TC003,power on,dim,power off,,,,,,,
+TC004,power on,standby,,,,,,,,
+TC005,power on,factory reset,power off,,,,,,,
+TC006,power on,bt pairing,bt pairing timeout,power off,,,,,,
+TC007,power on,bt pairing,paired,play audio,power off,,,,,
+TC008,power on,play audio,until off,Charging,Charged(90%),Charged(100%),turn off AC,power on,play audio,power off

@@ -6,21 +6,44 @@ __author__ = 'Bruce.Zhu'
 
 import re
 from itertools import dropwhile
+from common.Logger import Logger
 
 
 class DataProcess(object):
     """docstring for DataProcess"""
-    def __init__(self):
-        pass
 
-    def verify_data(self, data_path, data_type, compared_num, counting, exp):
-        if data_type == 'pulse':
+    def __init__(self):
+        self.log = Logger('main').logger()
+
+    def verify_data(self, data_path, data_type, exp):
+        """
+        """
+        self.log.info('Verifing data [{}]'.format(data_type))
+        data, t, k1, k2 = self.split_data(data_path)
+        count = 3
+        wave_range = [150, 200]
+        if float(exp[0]) <= 1 and float(exp[1]) <= 1:
+            count = 6
+        if data_type == 'data':
+            result = self.led_status(data, [k1, k2], exp)
+            self.log.info(result)
+            return result
+        elif data_type == 'pulse':
             # compared_num = 100  # if sampling rate range is 500-800
             # counting = 500  # if sampling rate range is 500-800
-            data, t, k1, k2 = self.split_data(data_path)
-            act_value = self.led_pulse(data, compared_num, counting, [k1, k2])
-            print(act_value)
-            print(self.compare(exp, act_value))
+            act = self.led_pulse(data, count, [k1, k2])
+            return int(exp[0]) <= act[0] and int(exp[1]) <= act[1]
+        elif data_type == 'flash':
+            period = [float(exp[0]), float(exp[1])]
+            result = self.led_flash(data, t, wave_range, [k1, k2], period)
+            return result
+            # return int(exp[0]) <= act[0] and int(exp[1]) <= act[1]
+        elif data_type == 'transition':
+            act = self.led_transition(data, count, [k1, k2])
+            return act[0] == int(exp[0]) and act[1] == int(exp[1])
+        elif data_type == 'audio_cue':
+            act = self.audio_cue(data, [k1, k2])
+            return int(exp[0]) <= act[0] and int(exp[1]) <= act[1]
 
     """
     def peak_vally():
@@ -65,6 +88,26 @@ class DataProcess(object):
         print('peak={}, vally={}'.format(top, bottom))
 
     """
+    @staticmethod
+    def split_time(t):
+        a, b, c = t.split(':')
+        s, ms = c.split('.')
+        ms = int(ms) * 0.0001
+        return int(s), ms
+
+    def time_diff(self, t1, t2):
+        """Just for seconds, and t2 > t1"""
+        s1, ms1 = self.split_time(t1)
+        s2, ms2 = self.split_time(t2)
+        s = 0
+        if s1 > s2:
+            s2 += 60
+        if ms1 > ms2:
+            ms2 += 1
+            s = -1
+        s = s2 - s1 + s
+        ms = ms2 - ms1
+        return (s + round(ms, 4))
 
     @staticmethod
     def split_data(data_path, t1=None, t2=None):
@@ -88,8 +131,32 @@ class DataProcess(object):
                 t.append(value_t)
         return data, t, k1, k2
 
-    @staticmethod
-    def led_pulse(data, compared_num, counting, drange):
+    def check_data(self, data, drange):
+        new_data = []
+        if drange[0] == 0 or drange[1] == 0:
+            new_data = data
+        elif drange[1] > drange[0]:
+            new_data = data[drange[0]:drange[1]]
+        else:
+            self.log.info('Something wrong with your data range!')
+        return new_data
+
+    def led_status(self, data, drange, srange):
+        """
+        :param data: list
+        :param drange: list, data range between time1 and time2
+        :param srange: list, status range
+        :return on or off
+        """
+        new_data = self.check_data(data, drange)
+        avg = round(sum(new_data) / len(new_data))
+        self.log.info('data avg = {}, range = {}'.format(avg, srange))
+        if avg in range(int(srange[0]), int(srange[1])):
+            return True
+        else:
+            return False
+
+    def led_pulse(self, data, counting, drange, compared_num=100):
         """Judge LED data waves if it's a pulse behavior  /\/\/\
         :param data: list
         :param compared_num: int, numbers of compared data(countinuous data)
@@ -99,18 +166,12 @@ class DataProcess(object):
         """
         num = compared_num
         flag, count, up, down = 0, 0, 0, 0
-        if drange[0] == 0 or drange[1] == 0:
-            new_data = data
-        elif drange[1] > drange[0]:
-            new_data = data[drange[0]:drange[1]]
-        else:
-            print('Some thing wrong with your data range!')
-            return
+        new_data = self.check_data(data, drange)
         for i in range(len(new_data) - num * 2):
             avg1 = round(sum(new_data[i:i + (num - 1)]) /
                          len(new_data[i:i + (num - 1)]))
             avg2 = round(sum(new_data[i + num:i + (num * 2 - 1)]) /
-                         len(new_data[i + 100:i + (num * 2 - 1)]))
+                         len(new_data[i + num:i + (num * 2 - 1)]))
             # print('{} {} {}'.format(avg1, avg2, count))
             count += 1
             if avg1 > avg2:
@@ -132,11 +193,10 @@ class DataProcess(object):
                     down += 1
                 count = 0
                 flag = 0
-
+        self.log.info('led actual results: up={}, down={}'.format(up, down))
         return up, down
 
-    @staticmethod
-    def led_flash(data, wrange, drange):
+    def led_flash(self, data, t, wrange, drange, period):
         """Judge LED data waves if it's a flash behavior
         :param data: list
         :param wrange: list, max - min
@@ -144,13 +204,8 @@ class DataProcess(object):
         :return (up, down): numbers of continuous rise of fall
         """
         flag, count, up, down = 0, 0, 0, 0
-        if drange[0] == 0 or drange[1] == 0:
-            new_data = data
-        elif drange[1] > drange[0]:
-            new_data = data[drange[0]:drange[1]]
-        else:
-            print('Some thing wrong with your data range!')
-            return
+        tmp = []
+        new_data = self.check_data(data, drange)
         r = range(wrange[0], wrange[1])
         r1 = range(-wrange[1], -wrange[0])
         for i in range(len(new_data) - 5):
@@ -158,35 +213,92 @@ class DataProcess(object):
             v2 = new_data[i + 2] - new_data[i]
             v3 = new_data[i + 3] - new_data[i]
             v4 = new_data[i + 4] - new_data[i]
+            # self.log.info('{} {} {} {}'.format(v1, v2, v3, v4))
             if v1 in r or v2 in r or v3 in r or v4 in r:
                 if flag == 1:
                     # print('{} {} {}'.format(new_t[i], flag, new_data[i]))
                     down += 1
+                    tmp.append(t[i])
                 flag, count = -1, 0
             elif v1 in r1 or v2 in r1 or v3 in r1 or v4 in r1:
                 if flag == -1:
                     # print('{} {} {}'.format(new_t[i], flag, new_data[i]))
                     up += 1
+                    tmp.append(t[i])
                 flag, count = 1, 0
             count += 1
+        k = 0
+        while k < len(tmp) - 1:
+            t_d = self.time_diff(tmp[k], tmp[k + 1])
+            if not period[0] < t_d < period[1]:
+                # self.log.info(t_d)
+                self.log.info('{}, {}'.format(tmp[k], tmp[k + 1]))
+                return False
+            k += 1
+        return True
+        # self.log.info('led actual results: up={}, down={}'.format(up, down))
+        # return up, down
+
+    def led_transition(self, data, counting, drange, compared_num=100):
+        """Judge LED data waves if it's a transition behavior
+        :param data: list
+        :param compared_num: int, numbers of compared data(countinuous data)
+        :param counting: int, continuous times of meet requirement
+        :param drange: list, data range between time1 and time2
+        :return (up, down): numbers of continuous rise of fall
+        """
+        num = compared_num
+        count, up, down = 0, 0, 0
+        new_data = self.check_data(data, drange)
+        i = 0
+        while i < (len(new_data) - num * 2):
+            avg1 = round(sum(new_data[i:i + (num - 1)]) /
+                         len(new_data[i:i + (num - 1)]))
+            avg2 = round(sum(new_data[i + num:i + (num * 2 - 1)]) /
+                         len(new_data[i + num:i + (num * 2 - 1)]))
+            # print('{} {} {}'.format(avg1, avg2, count))
+            count += 1
+            if avg1 - avg2 < -20:
+                if count > counting:
+                    count = 0
+                    up += 1
+            elif avg1 - avg2 > 20:
+                if count > counting:
+                    count = 0
+                    down += 1
+            else:
+                count = 0
+            i = i + num
+        self.log.info('led actual results: up={}, down={}'.format(up, down))
         return up, down
 
-    @staticmethod
-    def audio_cue(data, compared_num, drange):
+    def audio_cue(self, data, drange):
         """sound getting smaller
-        :param data_path: strings
+        :param data: list
+        :param drange: list, data range between time1 and time2
+        :return bottom: int, numbers of bottom with countinuous rise
+        """
+        new_data = self.check_data(data, drange)
+        avg = sum(new_data) / len(new_data)
+        top = 0
+        low = 0
+        for d in new_data:
+            if d - avg > 2:
+                top += 1
+            elif d - avg < -2:
+                low += 1
+        self.log.info('sound actual results: top={} low={}'.format(top, low))
+        return top, low
+
+    def audio_cue2(self, data, compared_num, drange):
+        """sound getting smaller
+        :param data: list
         :param compared_num: int, numbers of compared data(countinuous data)
         :param drange: list, data range between time1 and time2
         :return bottom: int, numbers of bottom with countinuous rise
         """
         num = compared_num
-        if drange[0] == 0 or drange[1] == 0:
-            new_data = data
-        elif drange[1] > drange[0]:
-            new_data = data[drange[0]:drange[1]]
-        else:
-            print('Some thing wrong with your data range!')
-            return
+        new_data = self.check_data(data, drange)
         count = 0
         i = 0
         bottom = 0
@@ -201,7 +313,7 @@ class DataProcess(object):
                     bottom += 1
                     i += num
             i += 1
-        i = 0
+        self.log.info('sound actual results: bottom={}'.format(bottom))
         return bottom
 
     @staticmethod
@@ -212,6 +324,7 @@ class DataProcess(object):
         :return True/Flase: results of comparison between exp and act
         """
         return exp[0] <= act[0] and exp[1] <= act[1]
+
 
 '''
 

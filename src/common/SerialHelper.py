@@ -77,15 +77,17 @@ class SerialHelper(object):
                 self.l_serial.write(data)
 
     def serial_port(self, name):
-        relay_port = ''
+        """Get serial port via its entire name string in "Device Manager" -- "Ports"
+        """
+        port = ''
         temp_serial = list()
         for com in list_ports.comports():
             str_com = com[0] + ": " + com[1][:-7]
             temp_serial.append(str_com)
-        for port in temp_serial:
-            if name in port:
-                relay_port = port.split(': ')[0]
-        return relay_port
+        for p in temp_serial:
+            if name in p:
+                port = p.split(': ')[0]
+        return port
 
 
 if __name__ == '__main__':

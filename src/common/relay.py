@@ -1,25 +1,32 @@
 
 import time
 import random
-
-from src.common.Logger import Logger
-from src.common.SerialHelper import SerialHelper
-from src.common.Config import Config
-
-path = './config/main.ini'
+from common.readConfig import main_cfg_path
+from common.Logger import Logger
+from common.SerialHelper import SerialHelper
+from common.Config import Config
 
 
-class relay(object):
+class Relay(object):
     def __init__(self):
         self.log = Logger("main").logger()
-        config = Config(path)
+        config = Config(main_cfg_path)
         config.cfg_load()
         self.port_name = config.cfg.get('Relay', 'port_name')
+        self.port = None
         self.ser = None
 
     def init_relay(self):
+        """Before operating relay, you must initialize it first.
+        """
         self.ser = SerialHelper()
-        port = self.ser.serial_port(self.port_name)
+        if self.port_name is not None:
+            port = self.ser.serial_port(self.port_name)
+        elif self.port is not None:
+            port = self.port_name
+        else:
+            self.log.error('Missing parameter[port or port_name]')
+            return False
         if port != '':
             self.ser.port = port
             self.ser.start()
@@ -35,12 +42,29 @@ class relay(object):
                 self.log.info(e)
         return False
 
-    def press(self, n, t):
+    def press(self, key, t):
+        """Press and release relay port
+        :param key: tuple type,
+                    That means you also could control many ports simultaneously
+        :param t: string type, the time of press
+        :return None
+        """
+        if not self.ser.alive:
+            return
+        k = '00'
+        for v in key:
+            a, b = v, k
+            k = hex(int(a, 16) ^ int(b, 16))
+        if len(k) == 3:
+            k = k.replace('0x', '0x0')
         if "-" in t:
             val = t.split("-")
-            t_delay = round(random.uniform(float(val[0]), float(val[1])), 4)
+            delay = round(random.uniform(float(val[0]), float(val[1])), 4)
         else:
-            t_delay = float(t)
-        self.ser.write(n.encode('utf-8'), isHex=True)
-        time.sleep(t_delay)
-        self.ser.write('00'.encode('utf-8'), isHex=True)
+            delay = float(t)
+        # close relay
+        self.ser.write(k.encode('utf-8'))
+        # How long do you need to press
+        time.sleep(delay)
+        # release relay
+        self.ser.write('0x00'.encode('utf-8'))
